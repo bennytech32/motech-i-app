@@ -1,4 +1,5 @@
 import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker'; 
@@ -29,8 +30,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// 🔴 IP ADDRESS YAKO YA BACKEND INABAKI HAPA
-const BACKEND_URL = 'http://192.168.100.4:5000'; 
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  Constants.expoConfig?.extra?.backendUrl ||
+  (Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000');
 
 const APP_CONFIG = {
   intro1Bg: 'https://images.unsplash.com/photo-1603584173870-7f23fdae1b7a?auto=format&fit=crop&w=1200&q=100', 
@@ -124,6 +127,11 @@ export default function AppFlow() {
       if (session) {
         setFullName(session.user.user_metadata?.full_name || '');
         setPhone(session.user.user_metadata?.phone_number || '');
+        fetchUserData(session.user.id);
+        setCurrentScreen('main');
+      } else {
+        setMyVehicles([]);
+        setMyBookings([]);
       }
     });
     fetchPublicData();
@@ -163,15 +171,21 @@ export default function AppFlow() {
       if (error) throw error;
       alert("Usajili Umekamilika! Sasa login kuingia.");
       setIsLoginMode(true);
-    } catch (error: any) { alert(error.message); } finally { setLoading(false); }
+    } catch (error: any) {
+      const message = error?.message === 'Network request failed'
+        ? 'Imeshindwa kuunganishwa na Supabase Auth. Hakikisha Supabase URL/API key ni sahihi na simu ina internet.'
+        : error.message;
+      alert(message);
+    } finally { setLoading(false); }
   };
 
   const handleLogin = async () => {
     if (!email || !password) { alert("Tafadhali jaza Email na Password!"); return; }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
+      if (data.session?.user?.id) await fetchUserData(data.session.user.id);
       setCurrentScreen('main');
     } catch (error: any) { alert(error.message); } finally { setLoading(false); }
   };
@@ -182,6 +196,11 @@ export default function AppFlow() {
     try {
       const { error } = await supabase.auth.updateUser({ data: { full_name: fullName, phone_number: phone } });
       if (error) throw error;
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ full_name: fullName, phone_number: phone })
+        .eq('id', userSession?.user?.id);
+      if (profileError) throw profileError;
       alert("Mabadiliko yamehifadhiwa! ✅");
       setIsSettingsMode(false);
     } catch (error: any) { alert(error.message); } finally { setLoading(false); }
@@ -193,9 +212,15 @@ export default function AppFlow() {
       { text: "Ndio, Lipia", onPress: async () => {
           setLoading(true);
           const { error } = await supabase.auth.updateUser({ data: { plan: planName } });
-          if (!error) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({ plan: planName })
+            .eq('id', userSession?.user?.id);
+          if (!error && !profileError) {
             alert(`Umejiunga kikamilifu na kifurushi cha ${planName}! 🚀`);
             setNotifications([{ id: Date.now(), title: 'Kifurushi Kipya!', sub: `Sasa upo kwenye ${planName}`, type: 'success' }, ...notifications]);
+          } else {
+            alert(error?.message || profileError?.message || 'Imeshindikana kubadilisha kifurushi.');
           }
           setLoading(false);
         }}
@@ -206,11 +231,29 @@ export default function AppFlow() {
 
   const toggleAddCarForm = () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowAddCarForm(!showAddCarForm); };
 
+  const ensureUserProfile = async () => {
+    const user = userSession?.user;
+    if (!user?.id) throw new Error('Tafadhali login tena kabla ya kusajili gari.');
+
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        full_name: user.user_metadata?.full_name || fullName || null,
+        phone_number: user.user_metadata?.phone_number || phone || null,
+        plan: user.user_metadata?.plan || 'Free',
+      });
+
+    if (error) throw error;
+    return user.id;
+  };
+
   const handleAddVehicle = async () => {
     if (!carModel || !carPlate) { alert("Jaza Jina na Namba ya Gari!"); return; }
     setLoading(true);
     try {
-      const { error } = await supabase.from('vehicles').insert([{ user_id: userSession?.user?.id, model: carModel, plate_number: carPlate }]);
+      const userId = await ensureUserProfile();
+      const { error } = await supabase.from('vehicles').insert([{ user_id: userId, model: carModel, plate_number: carPlate }]);
       if (error) throw error;
       alert("Gari Limesajiliwa Kwenye Garage Yako! 🚘");
       setCarModel(''); setCarPlate(''); toggleAddCarForm(); fetchUserData(userSession.user.id);
@@ -243,9 +286,10 @@ export default function AppFlow() {
     if (!sosForm.location || !sosForm.name || !sosForm.issue) { alert("Jaza fomu yote na ubonyeze kitufe kusoma GPS!"); return; }
     setLoading(true);
     try {
-      await supabase.from('sos_requests').insert([{ user_id: userSession?.user?.id || null, customer_name: sosForm.name, issue: sosForm.issue, coordinates: sosForm.location, status: 'Pending' }]);
+      const { error } = await supabase.from('sos_requests').insert([{ user_id: userSession?.user?.id || null, customer_name: sosForm.name, issue: sosForm.issue, coordinates: sosForm.location, status: 'Pending' }]);
+      if (error) throw error;
       alert('🚨 SOS Signal Imetumwa! Rescue team inakufuata.'); setCurrentScreen('main');
-    } catch (err) { alert('🚨 SOS Signal Imetumwa kikamilifu!'); setCurrentScreen('main'); } finally { setLoading(false); }
+    } catch (error: any) { alert(error.message || 'Imeshindwa kutuma SOS. Jaribu tena.'); } finally { setLoading(false); }
   };
 
   const handleSendAiMessage = async (customMessage?: string) => {
@@ -256,6 +300,7 @@ export default function AppFlow() {
     setAiLoading(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/ai/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsgText }) });
+      if (!response.ok) throw new Error(`Backend returned ${response.status}`);
       const data = await response.json();
       setAiMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: data.reply || "Samahani, Backend haipatikani." }]);
     } catch (error) {

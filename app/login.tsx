@@ -41,7 +41,7 @@ export default function LoginScreen() {
 
       <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideUpAnim }] }]}>
         <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to access your garage and track your vehicle's status in real-time.</Text>
+        <Text style={styles.subtitle}>{"Sign in to access your garage and track your vehicle's status in real-time."}</Text>
 
         {/* LOGIN FORM */}
         <View style={styles.formContainer}>
@@ -111,7 +111,7 @@ export default function LoginScreen() {
         
         {/* Register Link */}
         <View style={styles.registerRow}>
-          <Text style={styles.registerText}>Don't have an account? </Text>
+          <Text style={styles.registerText}>{"Don't have an account? "}</Text>
           <TouchableOpacity>
             <Text style={styles.registerLink}>Sign Up</Text>
           </TouchableOpacity>

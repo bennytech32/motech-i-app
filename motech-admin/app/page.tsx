@@ -3,16 +3,71 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   Users, Car, Calendar, AlertTriangle, 
-  Settings, LogOut, Clock, MapPin, Store, Video, PlusCircle, Package, Lock, ShieldCheck
+  LogOut, Clock, MapPin, Store, Video, PlusCircle, Package, Lock, ShieldCheck
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const isSupabaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'missing-anon-key';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+type SosRequest = {
+  id: string;
+  customer_name: string;
+  issue: string;
+  coordinates: string;
+  status: string;
+  profiles?: { phone_number?: string | null } | null;
+};
+
+type Booking = {
+  id: string;
+  service_type: string;
+  notes?: string | null;
+  booking_date?: string | null;
+  booking_time?: string | null;
+  status?: string | null;
+  vehicles?: { model?: string | null; plate_number?: string | null } | null;
+};
+
+type Vehicle = {
+  id: string;
+  model: string;
+  plate_number: string;
+};
+
+type ShowroomCar = {
+  id: string;
+  title: string;
+  price: string;
+  image_url: string;
+};
+
+type AcademyVideo = {
+  id: string;
+  title: string;
+  description?: string | null;
+  video_url: string;
+};
+
+type SparePart = {
+  id: string;
+  name: string;
+  price: string;
+  description?: string | null;
+  image_url: string;
+};
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Hitilafu imetokea.';
 
 export default function AdminDashboard() {
   // 🔴 MFUMO WA USALAMA (SECURITY STATES)
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('motech_admin_auth') === 'true'
+  );
   const [adminPassword, setAdminPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
@@ -21,12 +76,12 @@ export default function AdminDashboard() {
   
   // Data States
   const [stats, setStats] = useState({ users: 0, vehicles: 0, bookings: 0, sos: 0 });
-  const [activeSos, setActiveSos] = useState<any[]>([]);
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [allVehicles, setAllVehicles] = useState<any[]>([]);
-  const [showroomCars, setShowroomCars] = useState<any[]>([]);
-  const [academyVideos, setAcademyVideos] = useState<any[]>([]);
-  const [spareParts, setSpareParts] = useState<any[]>([]);
+  const [activeSos, setActiveSos] = useState<SosRequest[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
+  const [showroomCars, setShowroomCars] = useState<ShowroomCar[]>([]);
+  const [academyVideos, setAcademyVideos] = useState<AcademyVideo[]>([]);
+  const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   
   // Input States for New Car
   const [carTitle, setCarTitle] = useState('');
@@ -48,13 +103,8 @@ export default function AdminDashboard() {
   const [isUploadingPart, setIsUploadingPart] = useState(false);
 
   useEffect(() => {
-    // Angalia kama alishawahi kulogin kwenye hii browser
-    const savedAuth = localStorage.getItem('motech_admin_auth');
-    if (savedAuth === 'true') {
-      setIsAuthenticated(true);
-      fetchDashboardData();
-    }
-  }, []);
+    if (isAuthenticated) void fetchDashboardData();
+  }, [isAuthenticated]);
 
   // 🔴 FUNKSHENI YA KUVERIFY PASSWORD YA ADMIN
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -77,6 +127,12 @@ export default function AdminDashboard() {
   };
 
   async function fetchDashboardData() {
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      alert('Supabase env haijawekwa. Tengeneza motech-admin/.env.local kutoka motech-admin/.env.example.');
+      return;
+    }
+
     setLoading(true);
     const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
     const { count: vehicleCount } = await supabase.from('vehicles').select('*', { count: 'exact', head: true });
@@ -100,8 +156,9 @@ export default function AdminDashboard() {
     setLoading(false);
   }
 
-  const handleUploadCar = async (e: any) => {
+  const handleUploadCar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!isSupabaseConfigured) return alert('Supabase env haijawekwa kwenye motech-admin/.env.local.');
     if (!carTitle || !carPrice || !carImageFile) return alert("Jaza jina, bei, na chagua picha ya gari!");
     setIsUploadingCar(true);
     try {
@@ -117,11 +174,12 @@ export default function AdminDashboard() {
       (document.getElementById('carImageInput') as HTMLInputElement).value = ''; 
       fetchDashboardData();
       alert("✅ Gari limepakiwa Showroom!");
-    } catch (error: any) { alert(`Kosa: ${error.message}`); } finally { setIsUploadingCar(false); }
+    } catch (error: unknown) { alert(`Kosa: ${getErrorMessage(error)}`); } finally { setIsUploadingCar(false); }
   };
 
-  const handleUploadVideo = async (e: any) => {
+  const handleUploadVideo = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!isSupabaseConfigured) return alert('Supabase env haijawekwa kwenye motech-admin/.env.local.');
     if (!videoTitle || !videoFile) return alert("Jaza Kichwa na chagua Video!");
     setIsUploadingVideo(true);
     try {
@@ -137,11 +195,12 @@ export default function AdminDashboard() {
       (document.getElementById('videoFileInput') as HTMLInputElement).value = ''; 
       fetchDashboardData();
       alert("✅ Video imepakiwa Academy!");
-    } catch (error: any) { alert(`Kosa: ${error.message}`); } finally { setIsUploadingVideo(false); }
+    } catch (error: unknown) { alert(`Kosa: ${getErrorMessage(error)}`); } finally { setIsUploadingVideo(false); }
   };
 
-  const handleUploadPart = async (e: any) => {
+  const handleUploadPart = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!isSupabaseConfigured) return alert('Supabase env haijawekwa kwenye motech-admin/.env.local.');
     if (!partName || !partPrice || !partImageFile) return alert("Jaza jina, bei, na picha ya kipuri!");
     setIsUploadingPart(true);
     try {
@@ -157,10 +216,11 @@ export default function AdminDashboard() {
       (document.getElementById('partImageInput') as HTMLInputElement).value = ''; 
       fetchDashboardData();
       alert("✅ Kipuri kimepakiwa Dukani!");
-    } catch (error: any) { alert(`Kosa: ${error.message}`); } finally { setIsUploadingPart(false); }
+    } catch (error: unknown) { alert(`Kosa: ${getErrorMessage(error)}`); } finally { setIsUploadingPart(false); }
   };
 
   const updateStatus = async (table: string, id: string, status: string) => {
+    if (!isSupabaseConfigured) return alert('Supabase env haijawekwa kwenye motech-admin/.env.local.');
     await supabase.from(table).update({ status: status }).eq('id', id);
     fetchDashboardData(); 
   };
@@ -234,7 +294,7 @@ export default function AdminDashboard() {
       <div className="flex-1 p-10 overflow-y-auto">
         <header className="flex justify-between items-center mb-10">
           <div><h2 className="text-3xl font-black capitalize">{activeTab.replace('_', ' ')}</h2></div>
-          <button onClick={fetchDashboardData} className="bg-[#111a2a] border border-[#1e293b] hover:bg-[#1e293b] px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition"><Clock size={16} /> Refresh Data</button>
+          <button onClick={fetchDashboardData} disabled={loading} className="bg-[#111a2a] border border-[#1e293b] hover:bg-[#1e293b] px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition disabled:opacity-60"><Clock size={16} /> {loading ? 'Loading...' : 'Refresh Data'}</button>
         </header>
 
         {activeTab === 'overview' && (
@@ -368,7 +428,7 @@ export default function AdminDashboard() {
             </form>
             <div className="flex-1 grid grid-cols-2 gap-6">
               {showroomCars.map(car => (
-                <div key={car.id} className="bg-[#111a2a] rounded-3xl overflow-hidden border border-[#1e293b]"><img src={car.image_url} className="w-full h-40 object-cover" /><div className="p-4"><h4 className="font-bold text-lg">{car.title}</h4><p className="text-blue-500 font-bold">{car.price}</p></div></div>
+                <div key={car.id} className="bg-[#111a2a] rounded-3xl overflow-hidden border border-[#1e293b]"><img src={car.image_url} alt={car.title} className="w-full h-40 object-cover" /><div className="p-4"><h4 className="font-bold text-lg">{car.title}</h4><p className="text-blue-500 font-bold">{car.price}</p></div></div>
               ))}
             </div>
           </div>
@@ -434,7 +494,12 @@ export default function AdminDashboard() {
   );
 }
 
-function StatCard({ icon, label, value, highlight = false }: any) {
+function StatCard({ icon, label, value, highlight = false }: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
   return (
     <div className={`p-6 rounded-3xl border border-[#1e293b] ${highlight ? 'bg-red-600/10 border-red-600/30' : 'bg-[#111a2a]'}`}>
       <div className="w-12 h-12 bg-[#070b12] rounded-2xl flex items-center justify-center mb-4">{icon}</div>
