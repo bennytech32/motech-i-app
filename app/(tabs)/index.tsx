@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { signInWithAppleIdToken, signInWithGoogleOAuth } from '../../lib/socialAuth';
 import { supabase } from '../../supabase';
 
 const { width, height } = Dimensions.get('window');
@@ -219,6 +220,11 @@ const SETTINGS_TEXT = {
     welcomeNotificationSub: 'Your account is ready.',
     appleComingSoon: 'Apple Authentication is coming soon.',
     googleComingSoon: 'Google Authentication is coming soon.',
+    continueWithApple: 'Continue with Apple',
+    continueWithGoogle: 'Continue with Google',
+    socialLoginFailed: 'Social sign-in failed. Please try again.',
+    googleLoginFailed: 'Google sign-in failed. Please try again.',
+    appleLoginFailed: 'Apple sign-in failed. Please try again.',
     photoUploadSoon: 'Profile photo upload is coming soon.',
     photoRemoveSoon: 'Profile photo remove is coming soon.',
     photoPermissionRequired: 'Allow photo library access to change your profile picture.',
@@ -403,6 +409,11 @@ const SETTINGS_TEXT = {
     welcomeNotificationSub: 'Akaunti yako ipo tayari.',
     appleComingSoon: 'Apple Authentication inakuja hivi punde.',
     googleComingSoon: 'Google Authentication inakuja hivi punde.',
+    continueWithApple: 'Endelea na Apple',
+    continueWithGoogle: 'Endelea na Google',
+    socialLoginFailed: 'Kuingia kwa akaunti ya mtandao kumeshindikana. Jaribu tena.',
+    googleLoginFailed: 'Kuingia kwa Google kumeshindikana. Jaribu tena.',
+    appleLoginFailed: 'Kuingia kwa Apple kumeshindikana. Jaribu tena.',
     photoUploadSoon: 'Kupakia picha ya wasifu kunakuja hivi punde.',
     photoRemoveSoon: 'Kuondoa picha ya wasifu kunakuja hivi punde.',
     photoPermissionRequired: 'Ruhusu app kufikia picha ili ubadili picha ya wasifu.',
@@ -490,6 +501,7 @@ export default function AppFlow() {
   const [isSettingsMode, setIsSettingsMode] = useState(false); 
   const [settingsScreen, setSettingsScreen] = useState<SettingsScreen>('settings');
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
   const [userSession, setUserSession] = useState<any>(null);
 
   const [email, setEmail] = useState('');
@@ -682,6 +694,66 @@ export default function AppFlow() {
       if (data.session?.user?.id) await fetchUserData(data.session.user.id);
       setCurrentScreen('main');
     } catch (error: any) { alert(error.message); } finally { setLoading(false); }
+  };
+
+  const completeSocialLogin = async (session: any, socialFullName?: string | null) => {
+    if (!session?.user?.id) throw new Error(t.socialLoginFailed);
+
+    const user = session.user;
+    const profileName =
+      socialFullName ||
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      fullName ||
+      null;
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        full_name: profileName,
+        phone_number: user.user_metadata?.phone_number || phone || null,
+        plan: user.user_metadata?.plan || 'Free',
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+      });
+
+    if (profileError) throw profileError;
+
+    setUserSession(session);
+    setFullName(profileName || '');
+    setPhone(user.user_metadata?.phone_number || '');
+    setProfilePhotoUrl(user.user_metadata?.avatar_url || user.user_metadata?.picture || '');
+    await fetchUserData(user.id);
+    setCurrentScreen('main');
+  };
+
+  const handleGoogleLogin = async () => {
+    if (loading || socialLoading) return;
+    setSocialLoading('google');
+    try {
+      const { session, canceled } = await signInWithGoogleOAuth();
+      if (canceled) return;
+      await completeSocialLogin(session);
+    } catch (error: any) {
+      alert(error?.message || t.googleLoginFailed);
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    if (loading || socialLoading) return;
+    setSocialLoading('apple');
+    try {
+      const { session, fullName: appleFullName } = await signInWithAppleIdToken();
+      await completeSocialLogin(session, appleFullName);
+    } catch (error: any) {
+      if (error?.code !== 'ERR_REQUEST_CANCELED') {
+        alert(error?.message || t.appleLoginFailed);
+      }
+    } finally {
+      setSocialLoading(null);
+    }
   };
 
   const handleUpdateProfile = async () => {
@@ -1211,11 +1283,17 @@ export default function AppFlow() {
         )}
         <View style={styles.inputGroup}><Text style={[styles.label, { color: colors.textMuted }]}>{t.emailAddress}</Text><View style={[styles.inputWithIcon, themedCard]}><Feather name="mail" size={20} color={colors.textMuted} style={{ marginRight: 10 }} /><TextInput placeholder="mail@domain.com" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={colors.placeholder} style={{ flex: 1, color: colors.text }} value={email} onChangeText={setEmail} /></View></View>
         <View style={styles.inputGroup}><Text style={[styles.label, { color: colors.textMuted }]}>{t.password}</Text><View style={[styles.inputWithIcon, themedCard]}><Feather name="lock" size={20} color={colors.textMuted} style={{ marginRight: 10 }} /><TextInput placeholder={t.password} placeholderTextColor={colors.placeholder} secureTextEntry={!showPassword} style={{ flex: 1, color: colors.text }} value={password} onChangeText={setPassword} /><TouchableOpacity style={styles.passwordEyeBtn} onPress={() => setShowPassword(!showPassword)}><Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={colors.textMuted} /></TouchableOpacity></View></View>
-        <TouchableOpacity style={styles.mainLoginBtn} onPress={isLoginMode ? handleLogin : handleRegister} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainLoginBtnText}>{isLoginMode ? t.signIn : t.signUp}</Text>}</TouchableOpacity>
+        <TouchableOpacity style={styles.mainLoginBtn} onPress={isLoginMode ? handleLogin : handleRegister} disabled={loading || Boolean(socialLoading)}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainLoginBtnText}>{isLoginMode ? t.signIn : t.signUp}</Text>}</TouchableOpacity>
         <View style={styles.dividerRow}><View style={[styles.dividerLine, { backgroundColor: colors.border }]} /><Text style={[styles.dividerText, { color: colors.textMuted }]}>{t.orContinueWith}</Text><View style={[styles.dividerLine, { backgroundColor: colors.border }]} /></View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 15, marginBottom: 20 }}>
-          <TouchableOpacity style={styles.appleBtn} onPress={() => alert(t.appleComingSoon)}><Ionicons name="logo-apple" size={22} color="#000" /><Text style={styles.appleBtnText}>Apple</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.googleBtn, themedCard]} onPress={() => alert(t.googleComingSoon)}><Ionicons name="logo-google" size={22} color={colors.text} /><Text style={[styles.googleBtnText, { color: colors.text }]}>Google</Text></TouchableOpacity>
+        <View style={styles.socialButtonsRow}>
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity style={styles.appleBtn} onPress={handleAppleLogin} disabled={loading || Boolean(socialLoading)}>
+              {socialLoading === 'apple' ? <ActivityIndicator color="#000" /> : <><Ionicons name="logo-apple" size={22} color="#000" /><Text style={styles.appleBtnText}>{t.continueWithApple}</Text></>}
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={[styles.googleBtn, themedCard]} onPress={handleGoogleLogin} disabled={loading || Boolean(socialLoading)}>
+            {socialLoading === 'google' ? <ActivityIndicator color={colors.text} /> : <><Ionicons name="logo-google" size={22} color={colors.text} /><Text style={[styles.googleBtnText, { color: colors.text }]}>{t.continueWithGoogle}</Text></>}
+          </TouchableOpacity>
         </View>
         <TouchableOpacity style={styles.signupRow} onPress={() => setIsLoginMode(!isLoginMode)}><Text style={{ color: colors.textMuted }}>{isLoginMode ? t.noAccount : t.haveAccount}</Text><Text style={{ color: colors.primary, fontWeight: 'bold' }}>{isLoginMode ? t.signUp : t.signIn}</Text></TouchableOpacity>
       </ScrollView>
@@ -1557,9 +1635,10 @@ const styles = StyleSheet.create({
   dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 30 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#1e293b' },
   dividerText: { color: '#475569', paddingHorizontal: 15, fontWeight: 'bold' },
-  appleBtn: { flex: 1, backgroundColor: '#fff', height: 55, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  socialButtonsRow: { gap: 12, marginBottom: 20 },
+  appleBtn: { width: '100%', backgroundColor: '#fff', height: 55, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   appleBtnText: { color: '#000', fontWeight: 'bold', marginLeft: 8 },
-  googleBtn: { flex: 1, backgroundColor: '#1e293b', height: 55, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  googleBtn: { width: '100%', backgroundColor: '#1e293b', height: 55, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
   googleBtnText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
   signupRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 15, gap: 5 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 40, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#1e293b' },

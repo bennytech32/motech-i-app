@@ -44,6 +44,33 @@ cp motech-admin/.env.example motech-admin/.env.local
 
 Use the same Supabase project URL and anon key in the Expo app and admin dashboard. Use the service role key only in `motech-backend/.env`; never put it in Expo or browser code.
 
+## Social Auth Setup
+
+The mobile app uses this OAuth redirect URL:
+
+```text
+motechi://auth/callback
+```
+
+Add that exact URL in **Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs**.
+
+Google setup:
+
+1. In Google Cloud Console, create or open your OAuth app.
+2. Add your Android/iOS app identifiers as needed for production builds.
+3. Copy the Google OAuth Client ID and Client Secret into **Supabase Dashboard -> Authentication -> Providers -> Google**.
+4. Enable the Google provider in Supabase.
+5. Do not put the Google Client Secret in the mobile app.
+
+Apple setup:
+
+1. In Apple Developer account, enable **Sign in with Apple** for `com.benytech.motechi`.
+2. Configure the Apple provider in **Supabase Dashboard -> Authentication -> Providers -> Apple**.
+3. Add the Apple Services ID, Team ID, Key ID, and private key in Supabase only.
+4. Do not put Apple private keys or secrets in the mobile app.
+
+For local testing, use a development build because custom scheme callbacks such as `motechi://auth/callback` are not reliable in plain Expo Go.
+
 ## Run Locally
 
 Install and start the Expo app:
