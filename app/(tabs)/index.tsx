@@ -2,6 +2,7 @@ import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker'; 
 import React, { useEffect, useRef, useState } from 'react';
@@ -49,6 +50,9 @@ type SettingsScreen = 'settings' | 'pin' | 'device';
 
 const THEME_PREF_KEY = 'motech_theme_preference';
 const LANGUAGE_PREF_KEY = 'motech_language_preference';
+const PROFILE_PHOTO_BUCKET = 'profile-photos';
+
+const getProfilePhotoPath = (userId: string) => `${userId}/avatar`;
 
 const SETTINGS_TEXT = {
   en: {
@@ -217,6 +221,12 @@ const SETTINGS_TEXT = {
     googleComingSoon: 'Google Authentication is coming soon.',
     photoUploadSoon: 'Profile photo upload is coming soon.',
     photoRemoveSoon: 'Profile photo remove is coming soon.',
+    photoPermissionRequired: 'Allow photo library access to change your profile picture.',
+    photoUploadSuccess: 'Profile photo updated.',
+    photoUploadFailed: 'Failed to upload profile photo.',
+    photoRemoveSuccess: 'Profile photo removed.',
+    photoRemoveFailed: 'Failed to remove profile photo.',
+    signInForPhoto: 'Please sign in again before changing your profile photo.',
     biometricSoon: 'Biometric verification is coming soon.',
     biometricLoginSoon: 'Biometric login is coming soon.',
     passwordMismatch: 'New password and confirmation do not match.',
@@ -395,6 +405,12 @@ const SETTINGS_TEXT = {
     googleComingSoon: 'Google Authentication inakuja hivi punde.',
     photoUploadSoon: 'Kupakia picha ya wasifu kunakuja hivi punde.',
     photoRemoveSoon: 'Kuondoa picha ya wasifu kunakuja hivi punde.',
+    photoPermissionRequired: 'Ruhusu app kufikia picha ili ubadili picha ya wasifu.',
+    photoUploadSuccess: 'Picha ya wasifu imebadilishwa.',
+    photoUploadFailed: 'Imeshindikana kupakia picha ya wasifu.',
+    photoRemoveSuccess: 'Picha ya wasifu imeondolewa.',
+    photoRemoveFailed: 'Imeshindikana kuondoa picha ya wasifu.',
+    signInForPhoto: 'Tafadhali ingia tena kabla ya kubadili picha ya wasifu.',
     biometricSoon: 'Biometriki inakuja hivi punde.',
     biometricLoginSoon: 'Kuingia kwa biometriki kunakuja hivi punde.',
     passwordMismatch: 'Manenosiri mapya hayafanani.',
@@ -481,6 +497,8 @@ export default function AppFlow() {
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
+  const [profilePhotoLoading, setProfilePhotoLoading] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>('system');
   const [languagePreference, setLanguagePreference] = useState<LanguagePreference>('en');
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
@@ -552,6 +570,7 @@ export default function AppFlow() {
       if (session) {
         setFullName(session.user.user_metadata?.full_name || '');
         setPhone(session.user.user_metadata?.phone_number || '');
+        setProfilePhotoUrl(session.user.user_metadata?.avatar_url || '');
         fetchUserData(session.user.id);
         setCurrentScreen('main'); 
       } else {
@@ -564,11 +583,13 @@ export default function AppFlow() {
       if (session) {
         setFullName(session.user.user_metadata?.full_name || '');
         setPhone(session.user.user_metadata?.phone_number || '');
+        setProfilePhotoUrl(session.user.user_metadata?.avatar_url || '');
         fetchUserData(session.user.id);
         setCurrentScreen('main');
       } else {
         setMyVehicles([]);
         setMyBookings([]);
+        setProfilePhotoUrl('');
       }
     });
     fetchPublicData();
@@ -611,6 +632,16 @@ export default function AppFlow() {
   }, [languagePreference, t.aiInitialMessage, t.welcomeNotificationSub, t.welcomeNotificationTitle]);
 
   const fetchUserData = async (userId: string) => {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, phone_number, avatar_url')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profile) {
+      setFullName(profile.full_name || '');
+      setPhone(profile.phone_number || '');
+      setProfilePhotoUrl(profile.avatar_url || '');
+    }
     let { data: vehicles } = await supabase.from('vehicles').select('*').eq('user_id', userId);
     if (vehicles) setMyVehicles(vehicles);
     let { data: bookings } = await supabase.from('bookings').select('*, vehicles(model, plate_number)').eq('user_id', userId).order('created_at', { ascending: false });
@@ -667,6 +698,78 @@ export default function AppFlow() {
       alert(t.profileSaved);
       setIsSettingsMode(false);
     } catch (error: any) { alert(error.message); } finally { setLoading(false); }
+  };
+
+  const saveProfilePhotoUrl = async (userId: string, avatarUrl: string | null) => {
+    const { error: authError } = await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } });
+    if (authError) throw authError;
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ avatar_url: avatarUrl })
+      .eq('id', userId);
+    if (profileError) throw profileError;
+  };
+
+  const handleChangeProfilePhoto = async () => {
+    const userId = userSession?.user?.id;
+    if (!userId) { alert(t.signInForPhoto); return; }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      alert(t.photoPermissionRequired);
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+
+    setProfilePhotoLoading(true);
+    try {
+      const asset = result.assets[0];
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const path = getProfilePhotoPath(userId);
+      const contentType = asset.mimeType || 'image/jpeg';
+
+      const { error: uploadError } = await supabase.storage
+        .from(PROFILE_PHOTO_BUCKET)
+        .upload(path, blob, { contentType, upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(PROFILE_PHOTO_BUCKET).getPublicUrl(path);
+      const publicUrl = `${data.publicUrl}?v=${Date.now()}`;
+      await saveProfilePhotoUrl(userId, publicUrl);
+      setProfilePhotoUrl(publicUrl);
+      alert(t.photoUploadSuccess);
+    } catch (error: any) {
+      alert(error.message || t.photoUploadFailed);
+    } finally {
+      setProfilePhotoLoading(false);
+    }
+  };
+
+  const handleRemoveProfilePhoto = async () => {
+    const userId = userSession?.user?.id;
+    if (!userId) { alert(t.signInForPhoto); return; }
+
+    setProfilePhotoLoading(true);
+    try {
+      await supabase.storage.from(PROFILE_PHOTO_BUCKET).remove([getProfilePhotoPath(userId)]);
+      await saveProfilePhotoUrl(userId, null);
+      setProfilePhotoUrl('');
+      alert(t.photoRemoveSuccess);
+    } catch (error: any) {
+      alert(error.message || t.photoRemoveFailed);
+    } finally {
+      setProfilePhotoLoading(false);
+    }
   };
 
   const handleUpdatePin = async () => {
@@ -1009,17 +1112,21 @@ export default function AppFlow() {
         <Text style={[styles.settingsCardTitle, { color: colors.primary }]}>{t.profile}</Text>
         <View style={{ alignItems: 'center', marginBottom: 18 }}>
           <View style={[styles.settingsAvatar, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <Feather name="user" size={38} color={colors.text} />
+            {profilePhotoUrl ? (
+              <Image source={{ uri: profilePhotoUrl }} style={styles.settingsAvatarImage} />
+            ) : (
+              <Feather name="user" size={38} color={colors.text} />
+            )}
             <View style={[styles.cameraBadge, { backgroundColor: colors.primary }]}>
-              <Feather name="camera" size={13} color="#fff" />
+              {profilePhotoLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="camera" size={13} color="#fff" />}
             </View>
           </View>
         </View>
         <View style={styles.settingsButtonRow}>
-          <TouchableOpacity style={[styles.settingsPrimaryButton, { backgroundColor: colors.primary }]} onPress={() => alert(t.photoUploadSoon)}>
-            <Text style={styles.settingsPrimaryButtonText}>{t.changePhoto}</Text>
+          <TouchableOpacity style={[styles.settingsPrimaryButton, { backgroundColor: colors.primary }]} onPress={handleChangeProfilePhoto} disabled={profilePhotoLoading}>
+            {profilePhotoLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.settingsPrimaryButtonText}>{t.changePhoto}</Text>}
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.settingsGhostButton, { borderColor: colors.border }]} onPress={() => alert(t.photoRemoveSoon)}>
+          <TouchableOpacity style={[styles.settingsGhostButton, { borderColor: colors.border, opacity: profilePhotoUrl ? 1 : 0.45 }]} onPress={handleRemoveProfilePhoto} disabled={profilePhotoLoading || !profilePhotoUrl}>
             <Text style={[styles.settingsGhostButtonText, { color: colors.primary }]}>{t.remove}</Text>
           </TouchableOpacity>
         </View>
@@ -1382,7 +1489,7 @@ export default function AppFlow() {
             {isSettingsMode ? (
               renderAccountSettings()
             ) : (
-              <><View style={{ alignItems: 'center' }}><View style={[styles.avatarContainer, { backgroundColor: colors.secondary }]}><Feather name="user" size={40} color={colors.text} /></View><Text style={[styles.profileName, { color: colors.text }]}>{fullName || userSession?.user?.email?.split('@')[0] || t.customer}</Text><View style={styles.planBadge}><Text style={styles.planText}>{userSession?.user?.user_metadata?.plan || 'Free'}</Text></View></View>
+              <><View style={{ alignItems: 'center' }}><View style={[styles.avatarContainer, { backgroundColor: colors.secondary }]}>{profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} /> : <Feather name="user" size={40} color={colors.text} />}</View><Text style={[styles.profileName, { color: colors.text }]}>{fullName || userSession?.user?.email?.split('@')[0] || t.customer}</Text><View style={styles.planBadge}><Text style={styles.planText}>{userSession?.user?.user_metadata?.plan || 'Free'}</Text></View></View>
                 <Text style={[styles.sectionTitle, { marginTop: 30, color: colors.text }]}>{t.premiumSubscriptions}</Text>
                 <View style={styles.subGrid}><TouchableOpacity style={[styles.subCard, themedCard]} onPress={() => handleChangeSubscription('Standard', '5,000')}><Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 16 }}>Standard</Text><Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 20, marginTop: 5 }}>5,000/=</Text><Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 5 }}>{t.oneCarPlan}</Text></TouchableOpacity><TouchableOpacity style={[styles.subCard, themedCard]} onPress={() => handleChangeSubscription('Premium', '10,000')}><Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 16 }}>Premium</Text><Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 20, marginTop: 5 }}>10,000/=</Text><Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 5 }}>{t.threeCarPlan}</Text></TouchableOpacity></View>
                 <View style={{ marginTop: 30 }}><TouchableOpacity style={[styles.profileOption, { borderBottomColor: colors.border }]} onPress={() => { setSettingsScreen('settings'); setIsSettingsMode(true); }}><Feather name="settings" size={20} color={colors.text} /><Text style={[styles.profileOptionText, { color: colors.text }]}>{t.accountSettings}</Text></TouchableOpacity><TouchableOpacity style={[styles.profileOption, { borderBottomWidth: 0 }]} onPress={handleLogout}><Feather name="log-out" size={20} color={colors.primary} /><Text style={[styles.profileOptionText, { color: colors.primary }]}>{t.signOut}</Text></TouchableOpacity></View>
@@ -1486,6 +1593,7 @@ const styles = StyleSheet.create({
   navItem: { alignItems: 'center' },
   navText: { fontSize: 10, fontWeight: 'bold', marginTop: 4 },
   avatarContainer: { width: 100, height: 100, backgroundColor: '#1e293b', borderRadius: 50, justifyContent: 'center', alignItems: 'center', marginBottom: 15, borderWidth: 2, borderColor: '#dc2626' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 50 },
   profileName: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
   planBadge: { backgroundColor: 'rgba(250, 204, 21, 0.1)', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 15, marginTop: 5, borderWidth: 1, borderColor: '#facc15' },
   planText: { color: '#facc15', fontSize: 12, fontWeight: 'bold' },
@@ -1498,6 +1606,7 @@ const styles = StyleSheet.create({
   settingsCard: { backgroundColor: '#111a2a', borderRadius: 18, padding: 20, marginBottom: 22, borderWidth: 1, borderColor: '#1e293b' },
   settingsCardTitle: { fontSize: 14, fontWeight: '900', marginBottom: 18 },
   settingsAvatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  settingsAvatarImage: { width: '100%', height: '100%', borderRadius: 48 },
   cameraBadge: { position: 'absolute', right: 2, bottom: 4, width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#111a2a' },
   settingsButtonRow: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   settingsPrimaryButton: { flex: 1, height: 46, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },

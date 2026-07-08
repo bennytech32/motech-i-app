@@ -35,6 +35,12 @@
           "locationAlwaysAndWhenInUsePermission": "Allow MoTECH-i to track your location for emergency SOS dispatch."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MoTECH-i to choose a profile photo from your library."
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-font"
     ],
