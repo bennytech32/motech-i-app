@@ -1,50 +1,101 @@
-# Welcome to your Expo app 👋
+# MoTECH-i App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+MoTECH-i is an Expo mobile app with a Supabase database, an Express backend for AI/payment operations, and a Next.js admin dashboard.
 
-## Get started
+## Supabase Setup
 
-1. Install dependencies
+The app needs these Supabase tables and storage buckets:
 
-   ```bash
-   npm install
-   ```
+- `profiles`
+- `vehicles`
+- `bookings`
+- `sos_requests`
+- `showroom`
+- `spare_parts`
+- `academy_videos`
+- Storage buckets: `showroom`, `spare_parts`, `academy`
 
-2. Start the app
+Create them by running [supabase/migrations/20260707000000_initial_motech_schema.sql](./supabase/migrations/20260707000000_initial_motech_schema.sql) in your Supabase project:
 
-   ```bash
-   npx expo start
-   ```
+1. Open Supabase Dashboard.
+2. Select your project.
+3. Go to **SQL Editor**.
+4. Paste the migration SQL.
+5. Click **Run**.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+If you use the Supabase CLI, link the project and push:
 
 ```bash
-npm run reset-project
+supabase link --project-ref your-project-ref
+supabase db push
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+The migration also creates a signup trigger so every new Supabase Auth user gets a matching `profiles` row.
 
-## Learn more
+## Environment Files
 
-To learn more about developing your project with Expo, look at the following resources:
+Create local env files from the examples:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+cp .env.example .env
+cp motech-backend/.env.example motech-backend/.env
+cp motech-admin/.env.example motech-admin/.env.local
+```
 
-## Join the community
+Use the same Supabase project URL and anon key in the Expo app and admin dashboard. Use the service role key only in `motech-backend/.env`; never put it in Expo or browser code.
 
-Join our community of developers creating universal apps.
+## Social Auth Setup
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+The mobile app uses this OAuth redirect URL:
+
+```text
+motechi://auth/callback
+```
+
+Add that exact URL in **Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs**.
+
+Google setup:
+
+1. In Google Cloud Console, create or open your OAuth app.
+2. Add your Android/iOS app identifiers as needed for production builds.
+3. Copy the Google OAuth Client ID and Client Secret into **Supabase Dashboard -> Authentication -> Providers -> Google**.
+4. Enable the Google provider in Supabase.
+5. Do not put the Google Client Secret in the mobile app.
+
+Apple setup:
+
+1. In Apple Developer account, enable **Sign in with Apple** for `com.benytech.motechi`.
+2. Configure the Apple provider in **Supabase Dashboard -> Authentication -> Providers -> Apple**.
+3. Add the Apple Services ID, Team ID, Key ID, and private key in Supabase only.
+4. Do not put Apple private keys or secrets in the mobile app.
+
+For local testing, use a development build because custom scheme callbacks such as `motechi://auth/callback` are not reliable in plain Expo Go.
+
+## Run Locally
+
+Install and start the Expo app:
+
+```bash
+npm install
+npm start
+```
+
+Start the backend:
+
+```bash
+cd motech-backend
+npm install
+npm start
+```
+
+Start the admin dashboard:
+
+```bash
+cd motech-admin
+npm install
+npm run dev
+```
+
+## Security Note
+
+The current admin dashboard talks to Supabase directly from the browser with the anon key, so the migration includes permissive policies for admin dashboard reads/uploads. For production, move admin operations behind server-side API routes that use the Supabase service role key, then tighten the anon policies.

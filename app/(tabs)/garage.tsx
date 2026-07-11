@@ -53,7 +53,7 @@ export default function GarageScreen() {
             <Image source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80' }} style={styles.mechanicPic} />
             <View style={styles.mechanicInfo}>
               <Text style={styles.mechanicName}>Master Mechanic: David</Text>
-              <Text style={styles.mechanicNote}>"We found a minor leak in the radiator hose. Fixing it now. ETA: 2 hours."</Text>
+              <Text style={styles.mechanicNote}>{'"We found a minor leak in the radiator hose. Fixing it now. ETA: 2 hours."'}</Text>
             </View>
           </View>
         </View>

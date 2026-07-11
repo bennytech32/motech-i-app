@@ -4,21 +4,17 @@
     "slug": "motech-i-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.jpg",
-    "scheme": "myapp",
+    "icon": "./assets/images/icon.png",
+    "scheme": "motechi",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/images/logo.jpg",
-      "resizeMode": "contain",
-      "backgroundColor": "#070b12"
-    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.benytech.motechi"
+      "bundleIdentifier": "com.benytech.motechi",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo.jpg",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#070b12"
       },
       "package": "com.benytech.motechi",
@@ -30,7 +26,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/logo.jpg"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -40,15 +36,24 @@
           "locationAlwaysAndWhenInUsePermission": "Allow MoTECH-i to track your location for emergency SOS dispatch."
         }
       ],
-      "@react-native-community/datetimepicker"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MoTECH-i to choose a profile photo from your library."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-apple-authentication",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
+      "backendUrl": "http://192.168.1.33:5000",
       "router": {},
       "eas": {
-        "projectId": "8fe8ce03-b0a7-414a-9f55-fccba68d8464"
+        "projectId": "djeedzoydsieonwerven"
       }
     }
   }
